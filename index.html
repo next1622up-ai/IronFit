@@ -1,0 +1,874 @@
+
+import React, { useState, useEffect, useMemo } from "react";
+import {
+  Flame, Crown, Dumbbell, Trophy, User, Zap, Lock, Check,
+  ChevronRight, ChevronLeft, Star, Clock, Play, Pause, RotateCcw,
+  X, Target, Activity, CalendarDays, Shield, Settings, Plus,
+  TrendingUp, Award, Heart, Sparkles, Timer, Medal, RefreshCw
+} from "lucide-react";
+
+// IRONFIT — Telegram Mini App
+// Single-file React implementation
+
+const KEY = "ironfit_v1";
+
+const defaults = {
+  configured: false,
+  goal: "Убрать живот",
+  level: "Новичок",
+  place: "Дома без инвентаря",
+  xp: 0,
+  streak: 1,
+  bestStreak: 1,
+  completedDays: [],
+  workouts: 0,
+  pushups: 0,
+  plankMinutes: 0,
+  squats: 0,
+  freezes: 1,
+  pro: false,
+  tab: "workouts",
+  lastWorkout: null
+};
+
+const goals = [
+  { name: "Убрать живот", icon: "🔥", desc: "Сжечь жир и укрепить пресс" },
+  { name: "Накачать грудь и руки", icon: "💪", desc: "Мышечная масса и сила" },
+  { name: "Рельефное тело", icon: "⚡", desc: "Чёткий рельеф и форма" },
+  { name: "Выносливость и сила", icon: "🏆", desc: "Стать сильнее и выносливее" }
+];
+
+const levels = ["Новичок", "Средний", "Продвинутый"];
+const places = [
+  "Дома без инвентаря",
+  "Турники и брусья",
+  "Тренажерный зал"
+];
+
+const ranks = [
+  { name: "Новобранец", xp: 0 },
+  { name: "Боец", xp: 100 },
+  { name: "Атлет", xp: 300 },
+  { name: "Машина", xp: 600 },
+  { name: "Титан", xp: 1000 }
+];
+
+const exercises = [
+  {
+    name: "Отжимания",
+    amount: "12 повторений",
+    seconds: 0,
+    reps: 12,
+    type: "pushups",
+    tip: "Ладони чуть шире плеч. Опускай грудь к полу, держи корпус прямым."
+  },
+  {
+    name: "Планка",
+    amount: "30 секунд",
+    seconds: 30,
+    reps: 0,
+    type: "plank",
+    tip: "Локти под плечами. Напряги пресс и ягодицы. Не прогибай поясницу."
+  },
+  {
+    name: "Приседания",
+    amount: "15 повторений",
+    seconds: 0,
+    reps: 15,
+    type: "squats",
+    tip: "Стопы на ширине плеч. Отводи таз назад, колени направляй по линии носков."
+  },
+  {
+    name: "Отжимания узким хватом",
+    amount: "10 повторений",
+    seconds: 0,
+    reps: 10,
+    type: "pushups",
+    tip: "Держи локти ближе к корпусу. Работай плавно, без рывков."
+  },
+  {
+    name: "Отдых",
+    amount: "30 секунд",
+    seconds: 30,
+    reps: 0,
+    type: "rest",
+    tip: "Восстанови дыхание. Подготовься к следующему упражнению."
+  }
+];
+
+const exercisePlans = {
+  "Убрать живот": exercises,
+  "Накачать грудь и руки": [
+    exercises[0], exercises[3], exercises[1],
+    exercises[0], exercises[4]
+  ],
+  "Рельефное тело": [
+    exercises[0], exercises[2], exercises[1],
+    exercises[3], exercises[4]
+  ],
+  "Выносливость и сила": [
+    exercises[2], exercises[0], exercises[1],
+    exercises[2], exercises[4]
+  ]
+};
+
+const expressPlan = [
+  { name: "Лёгкие отжимания", amount: "8 повторений", seconds: 0, reps: 8, type: "pushups", tip: "Работай в комфортном темпе." },
+  { name: "Планка", amount: "20 секунд", seconds: 20, reps: 0, type: "plank", tip: "Напряги пресс и сохраняй ровную спину." },
+  { name: "Приседания", amount: "10 повторений", seconds: 0, reps: 10, type: "squats", tip: "Держи спину прямо и не торопись." }
+];
+
+function loadData() {
+  try {
+    return { ...defaults, ...JSON.parse(localStorage.getItem(KEY) || "{}") };
+  } catch {
+    return defaults;
+  }
+}
+
+function saveData(data) {
+  localStorage.setItem(KEY, JSON.stringify(data));
+}
+
+function App() {
+  const [data, setData] = useState(loadData);
+  const [goal, setGoal] = useState(data.goal);
+  const [level, setLevel] = useState(data.level);
+  const [place, setPlace] = useState(data.place);
+  const [step, setStep] = useState(0);
+  const [screen, setScreen] = useState(data.configured ? "home" : "onboarding");
+  const [modal, setModal] = useState("");
+  const [tariff, setTariff] = useState("year");
+  const [workout, setWorkout] = useState([]);
+  const [workoutType, setWorkoutType] = useState("normal");
+  const [exerciseIndex, setExerciseIndex] = useState(0);
+  const [timer, setTimer] = useState(30);
+  const [running, setRunning] = useState(false);
+  const [earned, setEarned] = useState(0);
+  const [editGoal, setEditGoal] = useState(false);
+  const [confirmReset, setConfirmReset] = useState(false);
+
+  const update = (patch) => {
+    setData(old => {
+      const next = { ...old, ...patch };
+      saveData(next);
+      return next;
+    });
+  };
+
+  useEffect(() => {
+    const tg = window.Telegram?.WebApp;
+    if (tg) {
+      tg.ready();
+      tg.expand();
+      tg.setHeaderColor("#ffffff");
+      tg.setBackgroundColor("#ffffff");
+    }
+  }, []);
+
+  // Countdown to midnight
+  const [countdown, setCountdown] = useState("");
+  useEffect(() => {
+    const tick = () => {
+      const now = new Date();
+      const end = new Date();
+      end.setHours(24, 0, 0, 0);
+      const diff = Math.max(0, end - now);
+      const h = Math.floor(diff / 3600000);
+      const m = Math.floor((diff % 3600000) / 60000);
+      const s = Math.floor((diff % 60000) / 1000);
+      setCountdown(
+        `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`
+      );
+    };
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  // Exercise timer
+  useEffect(() => {
+    if (!running) return;
+    const id = setInterval(() => {
+      setTimer(t => {
+        if (t <= 1) {
+          setRunning(false);
+          return 0;
+        }
+        return t - 1;
+      });
+    }, 1000);
+    return () => clearInterval(id);
+  }, [running]);
+
+  const rankIndex = [...ranks].reverse().findIndex(r => data.xp >= r.xp);
+  const currentRank = ranks[Math.max(0, ranks.length - 1 - rankIndex)];
+  const nextRank = ranks[ranks.findIndex(r => r.name === currentRank.name) + 1];
+  const xpProgress = nextRank
+    ? ((data.xp - currentRank.xp) / (nextRank.xp - currentRank.xp)) * 100
+    : 100;
+
+  const startWorkout = (express = false) => {
+    const plan = express
+      ? expressPlan
+      : (exercisePlans[data.goal] || exercises).slice(0, 4);
+
+    setWorkout(plan);
+    setWorkoutType(express ? "express" : "normal");
+    setExerciseIndex(0);
+    setTimer(plan[0].seconds || 30);
+    setRunning(false);
+    setScreen("training");
+  };
+
+  const currentExercise = workout[exerciseIndex];
+
+  const finishExercise = () => {
+    setRunning(false);
+    if (exerciseIndex < workout.length - 1) {
+      const next = exerciseIndex + 1;
+      setExerciseIndex(next);
+      setTimer(workout[next].seconds || 30);
+    } else {
+      const reward = workoutType === "express" ? 25 : 50;
+      setEarned(reward);
+      setScreen("victory");
+    }
+  };
+
+  const claimReward = () => {
+    const day = data.completedDays.length + 1;
+    const newDays = data.completedDays.includes(day)
+      ? data.completedDays
+      : [...data.completedDays, day];
+
+    const totals = workout.reduce((acc, ex) => {
+      if (ex.type === "pushups") acc.pushups += ex.reps || 0;
+      if (ex.type === "squats") acc.squats += ex.reps || 0;
+      if (ex.type === "plank") acc.plankMinutes += (ex.seconds || 0) / 60;
+      return acc;
+    }, { pushups: 0, squats: 0, plankMinutes: 0 });
+
+    const nextStreak = data.streak + (
+      data.lastWorkout === new Date().toDateString() ? 0 : 1
+    );
+
+    update({
+      xp: data.xp + earned,
+      streak: nextStreak,
+      bestStreak: Math.max(data.bestStreak, nextStreak),
+      completedDays: newDays,
+      workouts: data.workouts + 1,
+      pushups: data.pushups + totals.pushups,
+      squats: data.squats + totals.squats,
+      plankMinutes: data.plankMinutes + totals.plankMinutes,
+      lastWorkout: new Date().toDateString()
+    });
+    setScreen("home");
+  };
+
+  const resetAll = () => {
+    localStorage.removeItem(KEY);
+    setData(defaults);
+    setGoal(defaults.goal);
+    setLevel(defaults.level);
+    setPlace(defaults.place);
+    setScreen("onboarding");
+    setModal("");
+    setConfirmReset(false);
+  };
+
+  const activatePro = () => {
+    update({ pro: true, freezes: 5 });
+    setModal("");
+  };
+
+  const openPayment = () => {
+    const url = "https://t.me/IronFitOfficial_bot?start=pro";
+    const tg = window.Telegram?.WebApp;
+    if (tg?.openTelegramLink) tg.openTelegramLink(url);
+    else window.open(url, "_blank");
+  };
+
+  const finishOnboarding = () => {
+    update({
+      configured: true,
+      goal,
+      level,
+      place,
+      streak: 1,
+      freezes: 1
+    });
+    setScreen("home");
+  };
+
+  const goHome = (tab = "workouts") => {
+    update({ tab });
+    setScreen("home");
+  };
+
+  const Button = ({ children, onClick, secondary = false, className = "", disabled = false }) => (
+    <button
+      disabled={disabled}
+      onClick={onClick}
+      className={`w-full rounded-2xl px-4 py-4 font-black text-sm tracking-wide transition-all active:scale-[0.97] disabled:opacity-40 ${
+        secondary
+          ? "bg-white border border-slate-200 text-slate-800 hover:bg-slate-50"
+          : "bg-red-600 text-white shadow-lg shadow-red-200 hover:bg-red-700"
+      } ${className}`}
+    >
+      {children}
+    </button>
+  );
+
+  const Card = ({ children, className = "" }) => (
+    <div className={`bg-slate-50 border border-slate-200 rounded-2xl p-4 ${className}`}>
+      {children}
+    </div>
+  );
+
+  const Header = () => (
+    <header className="sticky top-0 z-30 bg-white/95 backdrop-blur border-b border-slate-100 px-4 pt-3 pb-3">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 min-w-[85px]">
+          <Flame className="text-red-600 animate-pulse" size={29} fill="#DC2626" />
+          <div>
+            <div className="font-black text-xl leading-none">{data.streak}</div>
+            <div className="text-[9px] text-slate-500 font-bold uppercase">Дней огня</div>
+          </div>
+        </div>
+
+        <div className="flex-1 max-w-[160px]">
+          <div className="flex justify-between items-center mb-1">
+            <span className="text-[10px] font-black text-slate-800">{currentRank.name}</span>
+            <span className="text-[9px] text-slate-500">{data.xp} XP</span>
+          </div>
+          <div className="h-2 bg-slate-200 rounded-full overflow-hidden">
+            <div
+              className="h-full bg-red-600 rounded-full transition-all duration-500"
+              style={{ width: `${xpProgress}%` }}
+            />
+          </div>
+          <div className="text-[9px] text-slate-400 mt-1 text-center">
+            {nextRank ? `${nextRank.xp - data.xp} XP до ${nextRank.name}` : "Максимальный ранг"}
+          </div>
+        </div>
+
+        <button
+          onClick={() => setModal("pro")}
+          className={`rounded-xl px-3 py-2 flex items-center gap-1 font-black text-xs transition active:scale-95 ${
+            data.pro
+              ? "bg-amber-100 text-amber-700 border border-amber-300"
+              : "bg-slate-900 text-amber-400"
+          }`}
+        >
+          <Crown size={16} fill="currentColor" />
+          {data.pro ? "PRO ✓" : "PRO"}
+        </button>
+      </div>
+      <div className="flex items-center gap-1 mt-2 text-[9px] text-red-500 font-semibold">
+        <Clock size={11} />
+        Сгорит через {countdown}
+      </div>
+    </header>
+  );
+
+  const BottomNav = () => (
+    <nav className="fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-slate-200 px-3 pt-2 pb-[max(10px,env(safe-area-inset-bottom))]">
+      <div className="max-w-md mx-auto grid grid-cols-3 gap-2">
+        {[
+          { id: "workouts", icon: Dumbbell, label: "Тренировки" },
+          { id: "progress", icon: TrendingUp, label: "Прогресс" },
+          { id: "profile", icon: User, label: "Профиль" }
+        ].map(item => (
+          <button
+            key={item.id}
+            onClick={() => goHome(item.id)}
+            className={`flex flex-col items-center gap-1 py-1 rounded-xl transition ${
+              data.tab === item.id ? "text-red-600" : "text-slate-400"
+            }`}
+          >
+            <item.icon size={22} strokeWidth={data.tab === item.id ? 2.8 : 2} />
+            <span className="text-[10px] font-bold">{item.label}</span>
+          </button>
+        ))}
+      </div>
+    </nav>
+  );
+
+  const WorkoutHome = () => (
+    <div className="space-y-5">
+      <div className="pt-2">
+        <p className="text-xs text-slate-500 font-semibold uppercase tracking-widest">Твой путь к силе</p>
+        <h1 className="text-3xl font-black text-slate-900 mt-1">Время работать. <span className="text-red-600">💪</span></h1>
+        <p className="text-sm text-slate-500 mt-1">Каждый день делает тебя сильнее.</p>
+      </div>
+
+      <div className="bg-gradient-to-br from-red-600 to-red-700 rounded-3xl p-5 text-white shadow-xl shadow-red-200 relative overflow-hidden">
+        <div className="absolute -right-6 -top-6 opacity-10">
+          <Dumbbell size={150} />
+        </div>
+        <div className="relative">
+          <span className="text-[10px] font-black tracking-widest text-red-100">ПЛАН НА СЕГОДНЯ</span>
+          <h2 className="text-2xl font-black mt-2">Не ищи оправданий.</h2>
+          <p className="text-xs text-red-100 mt-1 mb-5">{data.goal} · {data.level}</p>
+          <button
+            onClick={() => startWorkout(false)}
+            className="bg-white text-red-600 rounded-xl px-5 py-4 w-full font-black text-xs flex justify-center items-center gap-2 active:scale-95 transition"
+          >
+            <Play size={17} fill="currentColor" /> НАЧАТЬ ТРЕНИРОВКУ ДНЯ
+          </button>
+        </div>
+      </div>
+
+      <button
+        onClick={() => startWorkout(true)}
+        className="w-full border-2 border-dashed border-red-200 bg-red-50 rounded-2xl p-4 flex items-center gap-3 text-left active:scale-[0.98] transition"
+      >
+        <div className="bg-red-600 rounded-xl p-3 text-white"><Zap size={22} fill="white" /></div>
+        <div className="flex-1">
+          <div className="font-black text-sm text-slate-900">Мало времени? Экспресс 5 мин</div>
+          <div className="text-xs text-slate-500 mt-1">3 упражнения · +25 XP · Сохрани огонь</div>
+        </div>
+        <ChevronRight className="text-red-500" />
+      </button>
+
+      <div>
+        <div className="flex items-center justify-between mb-3">
+          <div>
+            <h2 className="text-lg font-black">Твой путь</h2>
+            <p className="text-xs text-slate-500">14 дней к новой версии себя</p>
+          </div>
+          <span className="text-xs font-black text-red-600">{data.completedDays.length}/14</span>
+        </div>
+        <div className="h-2 bg-slate-100 rounded-full mb-5 overflow-hidden">
+          <div className="h-full bg-red-600 rounded-full transition-all" style={{ width: `${data.completedDays.length / 14 * 100}%` }} />
+        </div>
+
+        <div className="relative py-2">
+          <div className="absolute left-1/2 top-5 bottom-5 w-1 bg-slate-100 -translate-x-1/2 rounded-full" />
+          <div className="space-y-5 relative">
+            {Array.from({ length: 14 }, (_, i) => {
+              const day = i + 1;
+              const done = data.completedDays.includes(day);
+              const active = day === data.completedDays.length + 1;
+              const locked = !done && !active;
+              const offset = [0, 55, 85, 45, -35, -75, -40, 40, 80, 45, -40, -75, -30, 0][i];
+              return (
+                <div key={day} className="flex justify-center relative" style={{ transform: `translateX(${offset}px)` }}>
+                  <div className="flex flex-col items-center">
+                    <button
+                      onClick={() => {
+                        if (active) startWorkout(false);
+                        else if (done) setModal("day");
+                      }}
+                      className={`w-[58px] h-[58px] rounded-full border-[4px] flex items-center justify-center shadow-md transition active:scale-90 ${
+                        done
+                          ? "bg-green-500 border-green-200 text-white"
+                          : active
+                          ? "bg-red-600 border-red-200 text-white animate-pulse shadow-red-200"
+                          : "bg-slate-200 border-slate-100 text-slate-400"
+                      }`}
+                    >
+                      {done ? <Check size={25} strokeWidth={4} /> : locked ? <Lock size={19} /> : <Star size={23} fill="white" />}
+                    </button>
+                    <span className={`text-[10px] mt-1 font-black ${active ? "text-red-600" : "text-slate-400"}`}>ДЕНЬ {day}</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      <Card>
+        <div className="flex gap-3 items-center">
+          <div className="bg-amber-100 text-amber-600 p-3 rounded-xl"><Trophy size={23} /></div>
+          <div className="flex-1">
+            <div className="font-black text-sm">Твоя следующая победа</div>
+            <div className="text-xs text-slate-500 mt-1">Заверши тренировку и получи +50 XP</div>
+          </div>
+        </div>
+      </Card>
+    </div>
+  );
+
+  const Progress = () => {
+    const stats = [
+      { label: "Всего отжиманий", value: data.pushups, icon: Dumbbell, unit: "раз" },
+      { label: "Минут в планке", value: data.plankMinutes.toFixed(1), icon: Timer, unit: "мин" },
+      { label: "Всего приседаний", value: data.squats, icon: Activity, unit: "раз" },
+      { label: "Завершено тренировок", value: data.workouts, icon: Trophy, unit: "шт" },
+      { label: "Рекорд огонька", value: data.bestStreak, icon: Flame, unit: "дней" },
+      { label: "Получено опыта", value: data.xp, icon: Star, unit: "XP" }
+    ];
+    return (
+      <div className="space-y-5 pt-2">
+        <div>
+          <p className="text-xs font-bold text-slate-500 uppercase tracking-widest">Твои результаты</p>
+          <h1 className="text-3xl font-black mt-1">Прогресс <span className="text-red-600">📈</span></h1>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          {stats.map((s, i) => (
+            <Card key={s.label} className={i === 0 ? "border-red-200 bg-red-50" : ""}>
+              <div className="flex justify-between">
+                <s.icon size={21} className="text-red-600" />
+                <span className="text-[9px] font-bold text-slate-400">{s.unit}</span>
+              </div>
+              <div className="text-3xl font-black mt-3 text-slate-900">{s.value}</div>
+              <div className="text-[11px] text-slate-500 font-semibold mt-1">{s.label}</div>
+            </Card>
+          ))}
+        </div>
+
+        <Card>
+          <div className="flex items-center gap-3">
+            <div className="p-3 bg-orange-100 rounded-xl"><Flame className="text-red-600" size={25} /></div>
+            <div className="flex-1">
+              <div className="font-black">Огонь серии</div>
+              <div className="text-xs text-slate-500">Сейчас: {data.streak} дней · Рекорд: {data.bestStreak}</div>
+            </div>
+            <div className="text-2xl font-black text-red-600">{data.streak}🔥</div>
+          </div>
+        </Card>
+
+        <div className="bg-slate-900 rounded-3xl p-5 text-white">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-lg font-black">Заморозка огонька</div>
+              <div className="text-xs text-slate-400 mt-1">Защити свою серию от пропуска дня</div>
+            </div>
+            <Shield size={30} className="text-red-400" />
+          </div>
+          <div className="flex items-center gap-3 mt-5">
+            <div className="text-4xl font-black text-amber-400">{data.freezes}</div>
+            <div>
+              <div className="text-sm font-bold">Доступно заморозок</div>
+              <div className="text-[10px] text-slate-400">{data.pro ? "PRO: 5 заморозок" : "Базовый: 1 заморозка"}</div>
+            </div>
+          </div>
+          {!data.pro && (
+            <button onClick={() => setModal("pro")} className="mt-4 w-full rounded-xl bg-amber-400 text-slate-900 p-3 font-black text-xs">
+              ПОЛУЧИТЬ 5 ЗАМОРОЗОК С PRO <Crown size={14} className="inline" />
+            </button>
+          )}
+        </div>
+        <p className="text-[10px] text-slate-400 text-center">Статистика обновляется после получения награды за тренировку.</p>
+      </div>
+    );
+  };
+
+  const Profile = () => (
+    <div className="space-y-5 pt-2">
+      <div>
+        <p className="text-xs font-bold text-slate-500 uppercase tracking-widest">Твой аккаунт</p>
+        <h1 className="text-3xl font-black mt-1">Профиль</h1>
+      </div>
+      <div className="bg-slate-900 rounded-3xl p-5 text-white">
+        <div className="flex items-center gap-4">
+          <div className="w-16 h-16 rounded-2xl bg-red-600 flex items-center justify-center text-3xl font-black">IF</div>
+          <div>
+            <div className="text-xl font-black">{currentRank.name}</div>
+            <div className="text-xs text-slate-400 mt-1">{data.xp} XP · {data.workouts} тренировок</div>
+            <div className="text-[10px] text-red-400 font-bold mt-1">{data.pro ? "IRONFIT PRO" : "БАЗОВЫЙ АККАУНТ"}</div>
+          </div>
+        </div>
+      </div>
+
+      <Card>
+        <div className="flex justify-between items-center mb-4">
+          <h3 className="font-black">Мои параметры</h3>
+          <button onClick={() => setEditGoal(!editGoal)} className="text-red-600 text-xs font-black">{editGoal ? "ГОТОВО" : "ИЗМЕНИТЬ"}</button>
+        </div>
+        {[
+          { label: "Цель", value: goal, choices: goals.map(g => g.name), set: setGoal },
+          { label: "Уровень", value: level, choices: levels, set: setLevel },
+          { label: "Место тренировок", value: place, choices: places, set: setPlace }
+        ].map(item => (
+          <div key={item.label} className="py-3 border-t border-slate-200">
+            <div className="text-[10px] uppercase text-slate-400 font-bold">{item.label}</div>
+            {editGoal ? (
+              <select
+                value={item.value}
+                onChange={e => {
+                  item.set(e.target.value);
+                  const patch = item.label === "Цель" ? { goal: e.target.value } :
+                    item.label === "Уровень" ? { level: e.target.value } : { place: e.target.value };
+                  update(patch);
+                }}
+                className="mt-2 w-full p-3 rounded-xl bg-white border border-slate-200 text-sm font-bold"
+              >
+                {item.choices.map(c => <option key={c}>{c}</option>)}
+              </select>
+            ) : (
+              <div className="font-bold text-sm mt-1">{item.value}</div>
+            )}
+          </div>
+        ))}
+      </Card>
+
+      <div className="border border-amber-200 bg-amber-50 rounded-2xl p-4">
+        <div className="flex items-center gap-2">
+          <Crown className="text-amber-500" size={25} />
+          <div className="font-black">{data.pro ? "IRONFIT PRO активен" : "Перейди на PRO"}</div>
+        </div>
+        <p className="text-xs text-slate-600 mt-2">{data.pro ? "Все премиум-возможности открыты." : "Питание, спецкурсы, элитная лига и защита серии."}</p>
+        <Button className="mt-4 bg-slate-900 shadow-none" onClick={() => setModal("pro")}>
+          {data.pro ? "ПРОСМОТРЕТЬ PRO" : "ОТКРЫТЬ PRO"}
+        </Button>
+      </div>
+
+      <button onClick={() => setConfirmReset(true)} className="w-full border border-red-200 text-red-600 rounded-xl p-4 text-xs font-black flex items-center justify-center gap-2">
+        <RefreshCw size={16} /> СБРОСИТЬ ВЕСЬ ПРОГРЕСС
+      </button>
+    </div>
+  );
+
+  const TrainingScreen = () => {
+    if (!currentExercise) return null;
+    const progress = ((exerciseIndex + 1) / workout.length) * 100;
+    return (
+      <div className="space-y-6 pt-3">
+        <div className="flex items-center justify-between">
+          <button onClick={() => { setRunning(false); setScreen("home"); }} className="p-2 rounded-xl bg-slate-100"><X size={20} /></button>
+          <div className="text-xs font-black text-slate-500">ТРЕНИРОВКА</div>
+          <div className="text-xs font-black text-red-600">{exerciseIndex + 1}/{workout.length}</div>
+        </div>
+
+        <div>
+          <div className="flex justify-between text-xs font-bold mb-2">
+            <span>Твой прогресс</span>
+            <span className="text-red-600">{Math.round(progress)}%</span>
+          </div>
+          <div className="h-3 bg-slate-100 rounded-full overflow-hidden">
+            <div className="h-full bg-red-600 transition-all rounded-full" style={{ width: `${progress}%` }} />
+          </div>
+        </div>
+
+        <div className="bg-red-50 border border-red-100 rounded-3xl p-6 text-center">
+          <div className="w-24 h-24 mx-auto rounded-3xl bg-white shadow-sm flex items-center justify-center text-red-600">
+            {currentExercise.type === "plank" ? <Activity size={50} /> :
+             currentExercise.type === "rest" ? <Heart size={50} /> : <Dumbbell size={50} />}
+          </div>
+          <div className="text-[10px] font-black tracking-widest text-red-500 mt-5 uppercase">
+            {currentExercise.type === "rest" ? "ВОССТАНОВЛЕНИЕ" : "ТВОЁ УПРАЖНЕНИЕ"}
+          </div>
+          <h1 className="text-3xl font-black text-slate-900 mt-2">{currentExercise.name}</h1>
+          <div className="text-xl font-black text-red-600 mt-3">{currentExercise.amount}</div>
+        </div>
+
+        <Card>
+          <div className="flex items-center gap-2 font-black text-sm"><Target size={18} className="text-red-600" /> Техника выполнения</div>
+          <p className="text-sm text-slate-600 mt-3 leading-relaxed">{currentExercise.tip}</p>
+        </Card>
+
+        {currentExercise.seconds > 0 && (
+          <Card className="text-center">
+            <div className="text-xs font-black text-slate-500 uppercase">Таймер</div>
+            <div className="text-6xl font-black text-red-600 my-4 tabular-nums">
+              {String(Math.floor(timer / 60)).padStart(2, "0")}:{String(timer % 60).padStart(2, "0")}
+            </div>
+            {timer === 0 && <div className="text-sm font-black text-green-600 mb-3">Время вышло!</div>}
+            <div className="flex gap-2">
+              <button onClick={() => setRunning(!running)} className="flex-1 bg-red-600 text-white rounded-xl py-3 font-black text-xs flex items-center justify-center gap-2">
+                {running ? <Pause size={16} /> : <Play size={16} />}
+                {running ? "ПАУЗА" : "СТАРТ"}
+              </button>
+              <button onClick={() => { setRunning(false); setTimer(currentExercise.seconds); }} className="bg-white border border-slate-200 p-3 rounded-xl">
+                <RotateCcw size={18} />
+              </button>
+            </div>
+          </Card>
+        )}
+
+        <Button onClick={finishExercise}>
+          {exerciseIndex === workout.length - 1 ? "ЗАВЕРШИТЬ ТРЕНИРОВКУ" : "ВЫПОЛНЕНО"} <ChevronRight className="inline" size={17} />
+        </Button>
+        <p className="text-center text-[10px] text-slate-400">Работай в комфортном темпе. Следи за техникой.</p>
+      </div>
+    );
+  };
+
+  const Victory = () => (
+    <div className="min-h-[70vh] flex flex-col items-center justify-center text-center py-8">
+      <div className="text-7xl animate-bounce">🏆</div>
+      <div className="text-red-600 text-[10px] font-black tracking-[3px] mt-6">IRONFIT CHAMPION</div>
+      <h1 className="text-3xl font-black leading-tight mt-3">ТРЕНИРОВКА ЗАВЕРШЕНА!</h1>
+      <p className="text-slate-500 font-semibold text-sm mt-2">ТЫ СТАЛ СИЛЬНЕЕ.</p>
+
+      <div className="w-full bg-red-50 border border-red-100 rounded-3xl p-6 mt-8">
+        <div className="text-xs text-slate-500 font-bold">ТВОЯ НАГРАДА</div>
+        <div className="text-6xl text-red-600 font-black mt-3 animate-pulse">+{earned}</div>
+        <div className="text-red-600 font-black text-sm">XP</div>
+        <div className="flex justify-center gap-6 mt-6">
+          <div><Flame className="text-red-600 mx-auto" size={26} fill="#DC2626" /><div className="font-black mt-1">+1</div><div className="text-[10px] text-slate-500">Огонёк*</div></div>
+          <div><Trophy className="text-amber-500 mx-auto" size={26} /><div className="font-black mt-1">+1</div><div className="text-[10px] text-slate-500">Победа</div></div>
+          <div><Star className="text-red-600 mx-auto" size={26} /><div className="font-black mt-1">LVL UP</div><div className="text-[10px] text-slate-500">Опыт</div></div>
+        </div>
+      </div>
+      <p className="text-[10px] text-slate-400 mt-3">* Серия обновляется при получении награды.</p>
+      <Button onClick={claimReward} className="mt-8">ЗАБРАТЬ НАГРАДУ <Check className="inline" size={18} /></Button>
+    </div>
+  );
+
+  const ProModal = () => (
+    <div className="fixed inset-0 z-50 bg-slate-950/70 flex items-end sm:items-center justify-center p-0 sm:p-4">
+      <div className="bg-white w-full max-w-md rounded-t-3xl sm:rounded-3xl p-5 max-h-[92vh] overflow-y-auto animate-in slide-in-from-bottom duration-300">
+        <div className="flex justify-between items-center">
+          <span className="text-xs font-black text-amber-500 tracking-widest">IRONFIT PREMIUM</span>
+          <button onClick={() => setModal("")} className="bg-slate-100 rounded-full p-2"><X size={19} /></button>
+        </div>
+        <div className="bg-slate-900 rounded-3xl p-5 mt-4 text-white relative overflow-hidden">
+          <Crown className="absolute right-4 top-4 text-amber-400" size={52} />
+          <div className="text-amber-400 text-[10px] font-black tracking-widest">НОВЫЙ УРОВЕНЬ</div>
+          <h2 className="text-2xl font-black mt-3 leading-tight">IRONFIT PRO —<br /><span className="text-red-500">СТАНЬ МАШИНОЙ</span></h2>
+          <p className="text-slate-400 text-xs mt-3">Больше возможностей. Максимальный результат.</p>
+        </div>
+
+        <div className="space-y-4 mt-5">
+          {[
+            "Персональный план питания и расчет БЖУ под твою цель",
+            'Закрытые спецкурсы: "Стальной пресс за 30 дней", "Мощные руки"',
+            "5 заморозок огонька каждый месяц",
+            "Доступ в закрытую элитную лигу и челленджи"
+          ].map(t => (
+            <div key={t} className="flex gap-3 items-start">
+              <div className="bg-red-50 text-red-600 rounded-full p-1"><Check size={15} strokeWidth={3} /></div>
+              <p className="text-xs text-slate-700 font-semibold leading-relaxed">{t}</p>
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-6 space-y-3">
+          <button onClick={() => setTariff("month")} className={`w-full p-4 rounded-2xl border-2 flex items-center justify-between ${tariff === "month" ? "border-red-600 bg-red-50" : "border-slate-200"}`}>
+            <div className="text-left"><div className="font-black text-sm">1 Месяц</div><div className="text-[10px] text-slate-500">Подписка на 30 дней</div></div>
+            <div className="font-black text-red-600">399 ⭐</div>
+          </button>
+          <button onClick={() => setTariff("year")} className={`w-full p-4 rounded-2xl border-2 relative flex items-center justify-between ${tariff === "year" ? "border-red-600 bg-red-50" : "border-slate-200"}`}>
+            <span className="absolute -top-3 right-3 bg-amber-400 text-slate-900 rounded-full px-3 py-1 text-[9px] font-black">ХИТ · ВЫГОДНО -70%</span>
+            <div className="text-left"><div className="font-black text-sm">1 Год</div><div className="text-[10px] text-slate-500">Максимальная выгода</div></div>
+            <div className="font-black text-red-600">1490 ⭐</div>
+          </button>
+        </div>
+
+        <Button onClick={openPayment} className="mt-5 bg-slate-900 shadow-none">
+          <Star size={17} className="inline text-amber-400" fill="#F59E0B" /> ОПЛАТИТЬ ЗВЁЗДАМИ В TELEGRAM
+        </Button>
+        <button onClick={activatePro} className="w-full text-[10px] text-slate-400 mt-4 underline underline-offset-4">
+          [Тест: симулировать оплату PRO]
+        </button>
+        <p className="text-[9px] text-center text-slate-400 mt-3">Демонстрационная версия. Реальная оплата обрабатывается Telegram-ботом.</p>
+      </div>
+    </div>
+  );
+
+  // ONBOARDING
+  if (screen === "onboarding") {
+    return (
+      <div className="min-h-screen bg-white flex justify-center">
+        <div className="w-full max-w-md min-h-screen px-5 py-8 flex flex-col">
+          <div className="text-center pt-5">
+            <div className="flex justify-center items-center gap-2">
+              <Flame size={37} className="text-red-600" fill="#DC2626" />
+              <span className="text-4xl font-black tracking-tighter">IRON<span className="text-red-600">FIT</span></span>
+            </div>
+            <p className="text-slate-500 text-sm font-semibold mt-3">Твоя система мужской трансформации</p>
+          </div>
+
+          <div className="flex gap-2 mt-10">
+            {[0, 1, 2].map(i => <div key={i} className={`h-1.5 flex-1 rounded-full ${step >= i ? "bg-red-600" : "bg-slate-200"}`} />)}
+          </div>
+
+          <div className="mt-8 flex-1">
+            <div className="text-xs font-black text-red-600 uppercase tracking-widest">Шаг {step + 1} из 3</div>
+            <h1 className="text-3xl font-black mt-3">
+              {step === 0 ? "Какая твоя цель?" : step === 1 ? "Твой уровень?" : "Где тренируешься?"}
+            </h1>
+            <p className="text-sm text-slate-500 mt-2">
+              {step === 0 ? "Определи, каким ты хочешь стать." : step === 1 ? "Подберём подходящую нагрузку." : "Создадим программу под твои условия."}
+            </p>
+
+            <div className="space-y-3 mt-7">
+              {step === 0 && goals.map(g => (
+                <button key={g.name} onClick={() => setGoal(g.name)} className={`w-full rounded-2xl border-2 p-4 flex items-center gap-4 text-left transition active:scale-[0.98] ${goal === g.name ? "border-red-600 bg-red-50" : "border-slate-200 bg-white"}`}>
+                  <span className="text-3xl">{g.icon}</span>
+                  <div className="flex-1"><div className="font-black text-sm">{g.name}</div><div className="text-xs text-slate-500 mt-1">{g.desc}</div></div>
+                  {goal === g.name && <Check className="text-red-600" />}
+                </button>
+              ))}
+              {step === 1 && levels.map(l => (
+                <button key={l} onClick={() => setLevel(l)} className={`w-full rounded-2xl border-2 p-5 flex items-center justify-between font-black ${level === l ? "border-red-600 bg-red-50 text-red-600" : "border-slate-200"}`}>
+                  {l} {level === l && <Check />}
+                </button>
+              ))}
+              {step === 2 && places.map((p, i) => (
+                <button key={p} onClick={() => setPlace(p)} className={`w-full rounded-2xl border-2 p-5 flex items-center gap-4 text-left font-black text-sm ${place === p ? "border-red-600 bg-red-50 text-red-600" : "border-slate-200"}`}>
+                  <span className="text-2xl">{["🏠", "🏋️", "💪"][i]}</span><span className="flex-1">{p}</span>{place === p && <Check />}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="mt-8 space-y-3">
+            <Button onClick={() => step < 2 ? setStep(step + 1) : finishOnboarding()}>
+              {step === 2 ? "СОЗДАТЬ МОЙ ПЛАН" : "ПРОДОЛЖИТЬ"} <ChevronRight className="inline" />
+            </Button>
+            {step > 0 && <button onClick={() => setStep(step - 1)} className="w-full text-sm text-slate-400 font-bold py-2">НАЗАД</button>}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-white flex justify-center text-slate-900">
+      <div className="w-full max-w-md min-h-screen bg-white shadow-2xl relative pb-24">
+        {screen !== "training" && screen !== "victory" && <Header />}
+
+        <main className="px-4 pb-8">
+          {screen === "home" && (
+            <>
+              {data.tab === "workouts" && <WorkoutHome />}
+              {data.tab === "progress" && <Progress />}
+              {data.tab === "profile" && <Profile />}
+            </>
+          )}
+          {screen === "training" && <TrainingScreen />}
+          {screen === "victory" && <Victory />}
+        </main>
+
+        {screen === "home" && <BottomNav />}
+
+        {modal === "pro" && <ProModal />}
+
+        {modal === "day" && (
+          <div className="fixed inset-0 z-50 bg-slate-950/60 flex items-center justify-center p-5">
+            <div className="bg-white rounded-3xl p-6 w-full max-w-sm text-center">
+              <Trophy size={45} className="text-amber-500 mx-auto" />
+              <h2 className="font-black text-xl mt-4">День уже пройден!</h2>
+              <p className="text-sm text-slate-500 mt-2">Отличная работа. Продолжай свой путь.</p>
+              <Button className="mt-5" onClick={() => setModal("")}>ПОНЯТНО</Button>
+            </div>
+          </div>
+        )}
+
+        {confirmReset && (
+          <div className="fixed inset-0 z-[60] bg-slate-950/60 flex items-center justify-center p-5">
+            <div className="bg-white rounded-3xl p-6 w-full max-w-sm">
+              <div className="text-red-600"><RefreshCw size={35} /></div>
+              <h2 className="text-xl font-black mt-4">Сбросить прогресс?</h2>
+              <p className="text-sm text-slate-500 mt-2">Все тренировки, XP, огонёк и статус PRO будут сброшены. Это действие нельзя отменить.</p>
+              <div className="flex gap-2 mt-6">
+                <button onClick={() => setConfirmReset(false)} className="flex-1 border rounded-xl p-3 text-xs font-black">ОТМЕНА</button>
+                <button onClick={resetAll} className="flex-1 bg-red-600 text-white rounded-xl p-3 text-xs font-black">СБРОСИТЬ</button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export default App;
